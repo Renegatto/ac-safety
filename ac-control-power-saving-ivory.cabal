@@ -74,6 +74,7 @@ library
 
     -- Other library packages from which modules are imported.
     build-depends:
+        -- tested with ghc 9.6.1 and cabal 3.6.2.0
         base,
         ivory
 
