@@ -36,10 +36,8 @@ import Ivory.Language as Ivory
 
 import Control.Monad.State (MonadState)
 import Ctx (newMemArea, Ctx, define', mkSym)
-import Data.Monoid (Sum(Sum))
 
 newtype Ms = MkMs { unMs :: Uint64 }
-  deriving (Semigroup, Monoid) via (Sum Uint64)
   deriving newtype (Num, IvoryExpr, IvoryEq, IvoryOrd, IvoryType, IvoryVar, IvoryStore, IvoryInit, IvoryZeroVal)
 
 data Timer = MkTimer
@@ -50,11 +48,10 @@ data Timer = MkTimer
 newtype TimeNow t = MkTimeNow { timeNow :: forall eff. Ivory eff t }
 
 newPrevTimestamp :: forall m. MonadState Ctx m => m (Ref 'Global (Stored Ms))
-newPrevTimestamp = addrOf <$> newPrevTimestampArea
-  where
-    newPrevTimestampArea :: m (MemArea (Stored Ms))
-    newPrevTimestampArea =
-      newMemArea "timer_prevTimestamp" $ Just $ ival mempty
+newPrevTimestamp = fmap addrOf
+  $ newMemArea "timer_prevTimestamp"
+  $ Just
+  $ ival 0
 
 newTimer ::
   MonadState Ctx m =>

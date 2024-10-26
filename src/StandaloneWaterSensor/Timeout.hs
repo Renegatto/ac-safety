@@ -67,11 +67,11 @@ data Timeout = MkTimeout
   }
 
 newStatus :: forall m. MonadState Ctx m => m (Ref 'Global (Stored CStatus))
-newStatus = addrOf <$> newPrevTimestampArea
-  where
-    newPrevTimestampArea :: m (MemArea (Stored CStatus))
-    newPrevTimestampArea =
-      newMemArea "timeout_status" $ Just $ ival 0
+newStatus = fmap addrOf
+  $ newMemArea "timeout_status"
+  $ Just
+  $ ival
+  $ toCStatus Ticking
 
 newState :: MonadState Ctx m => Timer.Timer -> m State
 newState timer = do
