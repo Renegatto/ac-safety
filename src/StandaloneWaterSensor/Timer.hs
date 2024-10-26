@@ -25,7 +25,7 @@
 {-# LANGUAGE NamedFieldPuns #-}
 {-# OPTIONS_GHC -XGHC2021 #-}
 module StandaloneWaterSensor.Timer (
-  Timer (tryTick, start),
+  Timer (MkTimer, tryTick, start),
   Ms(MkMs, unMs),
   newTimer,
   TimeNow (MkTimeNow, timeNow)
@@ -74,23 +74,21 @@ newTimer timeNow interval = do
     , start = call_ start
     }
 
-newState :: (MonadState Ctx m) => m (State 'Global Ms)
+newState :: (MonadState Ctx m) => m (State Ms)
 newState = do
   stateRef <- newPrevTimestamp
   pure MkState
-    { ref = stateRef
-    , getState = deref stateRef
+    { getState = deref stateRef
     , putState = store stateRef
     }
 
-data State s t = MkState
-  { ref :: Ref s (Stored t)
-  , getState :: forall eff. Ivory eff t
+data State t = MkState
+  { getState :: forall eff. Ivory eff t
   , putState :: forall eff. t -> Ivory eff ()
   }
 
-tryTickImpl :: forall u (s :: RefScope).
-  State s Ms ->
+tryTickImpl :: forall u.
+  State Ms ->
   Ms ->
   TimeNow Ms ->
   Ivory (ProcEffects u IBool) ()
@@ -107,7 +105,7 @@ tryTickImpl MkState {getState,putState} interval MkTimeNow {timeNow} = do
 startImpl :: forall s eff.
   (eff ~ ProcEffects s ()) =>
   TimeNow Ms ->
-  State 'Global Ms ->
+  State Ms ->
   Ivory eff ()
 startImpl MkTimeNow {timeNow} MkState {putState} =
   putState =<< timeNow

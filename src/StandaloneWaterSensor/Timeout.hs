@@ -22,31 +22,19 @@
 {-# LANGUAGE OverloadedRecordDot #-}
 {-# LANGUAGE DuplicateRecordFields #-}
 {-# LANGUAGE InstanceSigs #-}
+{-# LANGUAGE NamedFieldPuns #-}
 module StandaloneWaterSensor.Timeout where
 
 import qualified StandaloneWaterSensor.Timer as Timer
-import qualified StandaloneWaterSensor.Timer.State as Timer
 
 import Prelude hiding (init)
 import Ivory.Language as Ivory
 import Enum (matchEnum)
-import Ivory.Language.Pointer (Nullability(Nullable, Valid), Constancy (Mutable), unsafePointerCast)
-
-data TimeoutParams s = MkTimeoutParams
-  { timer :: Timer.CTimerState s
-  }
-
-type GlobalTimer = Timer.CTimerState 'Global
-
-[ivory|
-struct TimeoutState
-  { timer :: Stored GlobalTimer
-  ; status :: Stored CStatus
-  }
-|]
+import Control.Monad.State (MonadState)
+import Ctx (Ctx, newMemArea, define', mkSym)
 
 newtype CStatus = MkCStatus { unCStatus :: Uint8 }
-  deriving newtype (IvoryType, IvoryInit, IvoryStore, IvoryVar, IvoryExpr, IvoryEq, IvoryOrd, Num)
+  deriving newtype (IvoryType, IvoryInit, IvoryStore, IvoryZeroVal, IvoryVar, IvoryExpr, IvoryEq, IvoryOrd, Num)
 
 data Status
   = Ticking
@@ -68,78 +56,66 @@ data Outcome
 toCOutcome :: Outcome -> COutcome
 toCOutcome = fromInteger . toEnum . fromEnum
 
-class Timeout t where
-  checked :: forall s. Def ('[t s, IBool] :-> COutcome)
-  reset :: forall s. Def ('[t s] :-> ())
-
-newtype CTimeoutState s = MkCTimeoutState
-  { ref :: Ref s (Struct "TimeoutState")
-  }
-  deriving newtype (IvoryType, IvoryVar)
-
-data TimeoutState s = MkTimeoutState
-  { timer :: Timer.TimerState 'Global
-  , status :: Ref s (Stored CStatus)
+data Timeout = MkTimeout
+  { checked :: forall eff. IBool -> Ivory eff COutcome
+  , reset :: forall eff. Ivory eff ()
   }
 
-timeoutState :: CTimeoutState s -> Ivory aff (TimeoutState s)
-timeoutState cstate = do
-  ctimer <- deref $ cstate.ref ~> timer
-  timerState <- Timer.timerState ctimer
-  pure MkTimeoutState
-    { timer = timerState
-    , status = cstate.ref ~> status
+newStatus :: forall m. MonadState Ctx m => m (Ref 'Global (Stored CStatus))
+newStatus = addrOf <$> newPrevTimestampArea
+  where
+    newPrevTimestampArea :: m (MemArea (Stored CStatus))
+    newPrevTimestampArea =
+      newMemArea "timeout_status" $ Just $ ival 0
+
+newState :: MonadState Ctx m => Timer.Timer -> m State
+newState timer = do
+  statusRef <- newStatus
+  pure MkState
+    { timer = timer
+    , getStatus = deref statusRef
+    , putStatus = store statusRef
     }
 
-instance Timeout CTimeoutState where
-  checked :: forall s. Def ([CTimeoutState s, IBool] :-> COutcome)
-  checked = proc "checkedTimeoutState" \cstate outcome -> body do
-    state <- timeoutState cstate
-    currentStatus <- deref state.status
-    matchEnum currentStatus \case
-      Ticking -> do
-        ifte_ outcome
-          (ret $ toCOutcome Done)
-          do
-            tickOutcome <- call Timer.tryTick state.timer.repr
-            ifte_ tickOutcome
-              do
-                store state.status $ toCStatus Expired
-                ret $ toCOutcome TimedOut
-              (ret $ toCOutcome NotYet)
-      Expired -> ret $ toCOutcome TimedOut
+data State = MkState
+  { timer :: Timer.Timer
+  , getStatus :: forall eff. Ivory eff CStatus
+  , putStatus :: forall eff. CStatus -> Ivory eff ()
+  }
 
-  reset :: forall s. Def ('[CTimeoutState s] :-> ())
-  reset = proc "reset" \cstate -> body do
-    state <- timeoutState cstate
-    store state.status $ toCStatus Ticking
-    call_ Timer.start state.timer.repr
+newTimeout ::
+  MonadState Ctx m =>
+  Timer.Timer ->
+  m Timeout
+newTimeout timer = do
+  state <- newState timer
+  checked <- define' incl \n ->
+    proc (mkSym "checked" n) \outcome ->
+    body $ checkedImpl state outcome
+  reset <- define' incl \n ->
+    proc (mkSym "reset" n) $ body $ resetImpl state
+  pure MkTimeout
+    { checked = \outcome -> call checked outcome
+    , reset = call_ reset
+    }
 
--- instantiation
+checkedImpl :: forall s. State -> IBool -> Ivory (ProcEffects s COutcome) ()
+checkedImpl MkState {getStatus, putStatus, timer = Timer.MkTimer {tryTick}} outcome = do
+  currentStatus <- getStatus
+  matchEnum currentStatus \case
+    Ticking -> do
+      ifte_ outcome
+        (ret $ toCOutcome Done)
+        do
+          tickOutcome <- tryTick
+          ifte_ tickOutcome
+            do
+              putStatus $ toCStatus Expired
+              ret $ toCOutcome TimedOut
+            (ret $ toCOutcome NotYet)
+    Expired -> ret $ toCOutcome TimedOut
 
-newLocal :: forall eff (s :: RefScope).
-  GetAlloc eff ~ Scope s =>
-  TimeoutParams 'Global ->
-  Ivory eff (CTimeoutState (Stack s))
-newLocal params =
-  fmap MkCTimeoutState $ local $ init params.timer
-
-newGlobal :: forall eff (s :: RefScope).
-  GetAlloc eff ~ Scope s =>
-  TimeoutParams 'Global ->
-  Ivory eff (CTimeoutState Global)
-newGlobal params = do
-  MkCTimeoutState localTimer <- newLocal @_ @s params
-  let
-    ptr = unsafePointerCast
-      @'Nullable @'Valid
-      @'Mutable @'Mutable
-      nullPtr
-  refCopy ptr localTimer
-  pure $ MkCTimeoutState ptr
-
-init :: Timer.CTimerState 'Global -> Init (Struct "TimeoutState")
-init globalTimer = istruct @"TimeoutState"
-    [ status .= ival (toCStatus Ticking)
-    , timer .= Timer.initCTimerState globalTimer
-    ]
+resetImpl :: forall s. State -> Ivory (ProcEffects s (COutcome)) ()
+resetImpl MkState {putStatus, timer = Timer.MkTimer {start}} = do
+  putStatus $ toCStatus Ticking
+  start
