@@ -18,6 +18,7 @@
 module Sleepiness where
 
 import Ivory.Language as Ivory
+import Enum (matchEnum)
 
 data Sleepiness
   = Energetic -- not going to fell asleep until become sleepy
@@ -32,21 +33,6 @@ newtype CSleepiness = MkCSleepiness Uint8
 
 sleepinessToC :: Sleepiness -> CSleepiness
 sleepinessToC = MkCSleepiness . fromInteger . toEnum . fromEnum
-
--- | Match the haskell enum represented by some C number (as enum?)
--- Inlines all the branches as nested if-then-else statements
-matchEnum :: forall eff b conId.
-  (IvoryEq conId, Num conId) =>
-  (Bounded b, Enum b) =>
-  conId -> (b -> Ivory eff ()) -> Ivory eff ()
-matchEnum conId cont = do
-  foldr
-    (\con else_ -> ifte_ (conId ==? toConId con) (cont con) else_)
-    (assert false)
-  $ enumFrom (minBound @b)
-  where
-    toConId :: b -> conId
-    toConId = fromInteger . toEnum . fromEnum
 
 getEnergized :: forall s.
   IvoryType CSleepiness =>

@@ -25,7 +25,9 @@ import Data.Kind (Type)
 import Control.Arrow ((>>>))
 import Unsafe.Coerce (unsafeCoerce)
 import qualified Ivory.Language.Pointer as Pointer
-import Sleepiness (CSleepiness, matchEnum, Sleepiness (Sleepy, Energetic, Insomniac, Lethargic))
+import Sleepiness (CSleepiness, Sleepiness (Sleepy, Energetic, Insomniac, Lethargic))
+import qualified StandaloneWaterSensor.Timer as Uuuh
+import Enum (matchEnum)
 
 newtype Ms = MkMs { unMs :: Uint64 }
   deriving newtype (IvoryType, IvoryVar)
