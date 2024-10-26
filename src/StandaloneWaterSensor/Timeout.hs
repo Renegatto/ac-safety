@@ -23,7 +23,12 @@
 {-# LANGUAGE DuplicateRecordFields #-}
 {-# LANGUAGE InstanceSigs #-}
 {-# LANGUAGE NamedFieldPuns #-}
-module StandaloneWaterSensor.Timeout where
+module StandaloneWaterSensor.Timeout
+  ( toCOutcome
+  , Outcome (Done, TimedOut, NotYet)
+  , Timeout (MkTimeout, checked, reset)
+  , newTimeout
+  ) where
 
 import qualified StandaloneWaterSensor.Timer as Timer
 

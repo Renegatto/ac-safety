@@ -36,6 +36,9 @@ data Ctx = MkCtx
   , defCounter :: Int
   }
 
+initial :: Ctx
+initial = MkCtx mempty 0
+
 define :: forall m. MonadState Ctx m => (Int -> ModuleDef) -> m Int
 define def = do
   modify \s -> s

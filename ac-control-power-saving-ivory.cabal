@@ -78,6 +78,7 @@ library
         base,
         ivory,
         ivory-stdlib,
+      --  ivory-backend-c,
         mtl
 
     -- Directories containing source files.

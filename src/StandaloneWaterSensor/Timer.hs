@@ -60,7 +60,7 @@ newTimer ::
   MonadState Ctx m =>
   TimeNow Ms ->
   Ms ->
-  m (Ivory (ProcEffects s ()) Timer)
+  m Timer
 newTimer timeNow interval = do
   state <- newState
   tryTick <- define' incl \n -> proc (mkSym "tryTick" n)
@@ -69,7 +69,7 @@ newTimer timeNow interval = do
   start <- define' incl \n -> proc (mkSym "start" n)
     $ body
     $ startImpl timeNow state 
-  pure $ pure MkTimer
+  pure MkTimer
     { tryTick = call tryTick 
     , start = call_ start
     }
