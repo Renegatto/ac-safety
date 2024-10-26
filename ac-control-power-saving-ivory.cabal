@@ -76,7 +76,9 @@ library
     build-depends:
         -- tested with ghc 9.6.1 and cabal 3.6.2.0
         base,
-        ivory
+        ivory,
+        ivory-stdlib,
+        mtl
 
     -- Directories containing source files.
     hs-source-dirs:   src
