@@ -18,14 +18,12 @@
 {-# LANGUAGE StandaloneDeriving #-}
 {-# LANGUAGE DerivingVia #-}
 {-# LANGUAGE QuasiQuotes #-}
-{-# LANGUAGE NoFieldSelectors #-}
 {-# LANGUAGE OverloadedRecordDot #-}
 {-# LANGUAGE DuplicateRecordFields #-}
 {-# LANGUAGE InstanceSigs #-}
 {-# LANGUAGE NamedFieldPuns #-}
 module StandaloneWaterSensor.Timeout
-  ( toCOutcome
-  , Outcome (Done, TimedOut, NotYet)
+  ( Outcome (Done, TimedOut, NotYet)
   , Timeout (MkTimeout, checked, reset)
   , newTimeout
   ) where
@@ -34,7 +32,7 @@ import qualified StandaloneWaterSensor.Timer as Timer
 
 import Prelude hiding (init)
 import Ivory.Language as Ivory
-import Enum (matchEnum)
+import Enum (matchEnum, enum)
 import Control.Monad.State (MonadState)
 import Ctx (Ctx, newMemArea, define', mkSym)
 
@@ -46,9 +44,6 @@ data Status
   | Expired
   deriving (Enum, Eq, Ord, Bounded)
 
-toCStatus :: Status -> CStatus
-toCStatus = fromInteger . toEnum . fromEnum
-
 newtype COutcome = MkCOutcome { unCOutcome :: Uint8 }
   deriving newtype (IvoryType, IvoryStore, IvoryVar, IvoryExpr, IvoryEq, IvoryOrd, Num)
 
@@ -57,9 +52,6 @@ data Outcome
   | TimedOut
   | NotYet
   deriving (Enum, Eq, Ord, Bounded)
-
-toCOutcome :: Outcome -> COutcome
-toCOutcome = fromInteger . toEnum . fromEnum
 
 data Timeout = MkTimeout
   { checked :: forall eff. IBool -> Ivory eff COutcome
@@ -71,7 +63,7 @@ newStatus = fmap addrOf
   $ newMemArea "timeout_status"
   $ Just
   $ ival
-  $ toCStatus Ticking
+  $ enum Ticking
 
 newState :: MonadState Ctx m => Timer.Timer -> m State
 newState timer = do
@@ -110,17 +102,17 @@ checkedImpl MkState {getStatus, putStatus, timer = Timer.MkTimer {tryTick}} outc
   matchEnum currentStatus \case
     Ticking -> do
       ifte_ outcome
-        (ret $ toCOutcome Done)
+        (ret $ enum Done)
         do
           tickOutcome <- tryTick
           ifte_ tickOutcome
             do
-              putStatus $ toCStatus Expired
-              ret $ toCOutcome TimedOut
-            (ret $ toCOutcome NotYet)
-    Expired -> ret $ toCOutcome TimedOut
+              putStatus $ enum Expired
+              ret $ enum TimedOut
+            (ret $ enum NotYet)
+    Expired -> ret $ enum TimedOut
 
 resetImpl :: forall s. State -> Ivory (ProcEffects s (COutcome)) ()
 resetImpl MkState {putStatus, timer = Timer.MkTimer {start}} = do
-  putStatus $ toCStatus Ticking
+  putStatus $ enum Ticking
   start

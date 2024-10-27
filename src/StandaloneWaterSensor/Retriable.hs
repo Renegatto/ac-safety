@@ -18,7 +18,6 @@
 {-# LANGUAGE StandaloneDeriving #-}
 {-# LANGUAGE DerivingVia #-}
 {-# LANGUAGE QuasiQuotes #-}
-{-# LANGUAGE NoFieldSelectors #-}
 {-# LANGUAGE OverloadedRecordDot #-}
 {-# LANGUAGE DuplicateRecordFields #-}
 {-# LANGUAGE InstanceSigs #-}
@@ -27,8 +26,6 @@
 module StandaloneWaterSensor.Retriable
   ( Result(HaveRetries, AllRetriesFailed, AlreadyFailedAllRetries)
   , Status(RetriesFailed, Retrying)
-  , toCResult
-  , toCStatus
   , Retriable(failedAgain, reset)
   , newRetriable
   , Attempts (MkAttempts)
@@ -40,6 +37,7 @@ import Prelude hiding (init)
 import Ivory.Language as Ivory
 import Control.Monad.State (MonadState)
 import Ctx (Ctx, newMemArea, define', mkSym)
+import Enum (enum)
 
 data Result
   = HaveRetries
@@ -50,9 +48,6 @@ data Result
 newtype CResult = MkCResult Uint8
   deriving newtype (IvoryType, IvoryInit, IvoryStore, IvoryZeroVal, IvoryVar, IvoryExpr, IvoryEq, IvoryOrd, Num)
 
-toCResult :: Result -> CResult
-toCResult = fromInteger . toEnum . fromEnum
-
 data Status
   = RetriesFailed
   | Retrying
@@ -60,9 +55,6 @@ data Status
 
 newtype CStatus = MkCStatus Uint8 
   deriving newtype (IvoryType, IvoryInit, IvoryStore, IvoryZeroVal, IvoryVar, IvoryExpr, IvoryEq, IvoryOrd, Num)
-
-toCStatus :: Status -> CStatus
-toCStatus = fromInteger . toEnum . fromEnum
 
 data State = MkState
   { getStatus :: forall eff. Ivory eff CStatus
@@ -76,7 +68,7 @@ newStatus = fmap addrOf
   $ newMemArea "retriable_status"
   $ Just
   $ ival
-  $ toCStatus Retrying
+  $ enum Retrying
 
 newAttempts :: forall m. MonadState Ctx m => m (Ref 'Global (Stored Attempts))
 newAttempts = fmap addrOf
@@ -121,7 +113,7 @@ newRetriable maxAttempts = do
 resetImpl :: State -> Ivory (ProcEffects s ()) ()
 resetImpl MkState {putAttempts, putStatus} = do
   putAttempts 0
-  putStatus $ toCStatus Retrying
+  putStatus $ enum Retrying
 
 failedAgainImpl :: Attempts -> State -> Ivory (ProcEffects s CResult) ()
 failedAgainImpl maxAttempts MkState {..} = do
@@ -131,6 +123,6 @@ failedAgainImpl maxAttempts MkState {..} = do
   ifte_
     (attempts'>=? maxAttempts)
     do
-      putStatus $ toCStatus RetriesFailed
-      ret $ toCResult AllRetriesFailed
-    (ret $ toCResult HaveRetries)
+      putStatus $ enum RetriesFailed
+      ret $ enum AllRetriesFailed
+    (ret $ enum HaveRetries)

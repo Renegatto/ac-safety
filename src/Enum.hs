@@ -15,7 +15,7 @@
 {-# LANGUAGE LambdaCase #-}
 {-# LANGUAGE KindSignatures #-}
 {-# LANGUAGE StandaloneKindSignatures #-}
-module Enum (matchEnum, coerceInit, unEnum) where
+module Enum (matchEnum, coerceInit, unEnum, enum) where
 
 import Ivory.Language as Ivory
 import Data.Coerce (Coercible)
@@ -26,6 +26,9 @@ import Data.Kind (Type)
 
 coerceInit :: Coercible a b => Init a -> Init b
 coerceInit (Init x) = Init x 
+
+enum :: (Enum a, Num b) => a -> b
+enum = fromInteger . toEnum . fromEnum
 
 -- | Match the haskell enum represented by some C number (as enum?)
 -- Inlines all the branches as nested if-then-else statements
