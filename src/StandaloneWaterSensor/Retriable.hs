@@ -65,14 +65,14 @@ data State = MkState
 
 newStatus :: forall m. MonadState Ctx m => m (Ref 'Global (Stored CStatus))
 newStatus = fmap addrOf
-  $ newMemArea "retriable_status"
+  $ newMemArea "Retriable_status"
   $ Just
   $ ival
   $ enum Retrying
 
 newAttempts :: forall m. MonadState Ctx m => m (Ref 'Global (Stored Attempts))
 newAttempts = fmap addrOf
-  $ newMemArea "retriable_retriesPassed"
+  $ newMemArea "Retriable_retriesPassed"
   $ Just
   $ ival 0
 
@@ -98,10 +98,10 @@ newtype Attempts = MkAttempts { unAttempts :: Uint8 }
 newRetriable :: MonadState Ctx m => Attempts -> m Retriable
 newRetriable maxAttempts = do
   state <- newState
-  reset <- define' incl \n -> proc (mkSym "reset" n)
+  reset <- define' incl \n -> proc (mkSym "Retriable_reset" n)
     $ body
     $ resetImpl state
-  failedAgain <- define' incl \n -> proc (mkSym "failedAgain" n)
+  failedAgain <- define' incl \n -> proc (mkSym "Retriable_failedAgain" n)
     $ body
     $ failedAgainImpl maxAttempts state
 

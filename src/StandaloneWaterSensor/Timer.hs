@@ -49,7 +49,7 @@ newtype TimeNow t = MkTimeNow { timeNow :: forall eff. Ivory eff t }
 
 newPrevTimestamp :: forall m. MonadState Ctx m => m (Ref 'Global (Stored Ms))
 newPrevTimestamp = fmap addrOf
-  $ newMemArea "timer_prevTimestamp"
+  $ newMemArea "Timer_prevTimestamp"
   $ Just
   $ ival 0
 
@@ -60,10 +60,10 @@ newTimer ::
   m Timer
 newTimer timeNow interval = do
   state <- newState
-  tryTick <- define' incl \n -> proc (mkSym "tryTick" n)
+  tryTick <- define' incl \n -> proc (mkSym "Timer_tryTick" n)
     $ body
     $ tryTickImpl state interval timeNow
-  start <- define' incl \n -> proc (mkSym "start" n)
+  start <- define' incl \n -> proc (mkSym "Timer_start" n)
     $ body
     $ startImpl timeNow state 
   pure MkTimer

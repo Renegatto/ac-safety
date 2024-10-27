@@ -87,10 +87,10 @@ newTimeout ::
 newTimeout timer = do
   state <- newState timer
   checked <- define' incl \n ->
-    proc (mkSym "checked" n) \outcome ->
+    proc (mkSym "Timeout_checked" n) \outcome ->
     body $ checkedImpl state outcome
   reset <- define' incl \n ->
-    proc (mkSym "reset" n) $ body $ resetImpl state
+    proc (mkSym "Timeout_reset" n) $ body $ resetImpl state
   pure MkTimeout
     { checked = \outcome -> call checked outcome
     , reset = call_ reset
