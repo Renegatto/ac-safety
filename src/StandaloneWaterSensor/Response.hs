@@ -28,6 +28,7 @@ module StandaloneWaterSensor.Response
   , COutcome
   , ReceiveMsg (MkReceiveMsg, receiveMsg)
   , newResponse
+  , Response (MkResponse, reset, receive)
   ) 
   where
 
