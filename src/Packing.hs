@@ -45,22 +45,12 @@ module Packing
   )
   where
 
-import Prelude hiding (init, fail, append)
+import Prelude hiding (init, fail)
 import Ivory.Language as Ivory
-import Control.Monad.State (MonadState)
-import Ctx (Ctx, newMemArea, define', mkSym)
-import Enum (enum, matchEnum)
--- import qualified StandaloneWaterSensor.Timeout as Timeout
--- import qualified StandaloneWaterSensor.Retriable as Retriable
-import qualified StandaloneWaterSensor.Timer as Timer
-import Data.Functor ((<&>))
-import qualified StandaloneWaterSensor.Connection as Connection
 import GHC.TypeNats (KnownNat, natVal, type (-), type (+), type (<=))
 import Data.Bits (shiftL, (.&.), shiftR)
-import Data.Type.Ord (Compare, type (>=?))
+import Data.Type.Ord (Compare)
 import Data.Functor.Const (Const (Const))
-import Data.Functor.Identity (Identity (runIdentity))
-import Data.Type.Equality ((:~:) (Refl))
 import Control.Arrow ((>>>))
 import Data.Foldable (Foldable(fold))
 
@@ -71,13 +61,13 @@ data Composite hi lo f xs where
       , KnownNat size
       , hi - lo + 1 ~ size
       , Compare hi lo ~ 'GT
-      , Compare lo 0 ~ 'GT
+      , Compare lo  0 ~ 'GT
       )
     => f a
     -> Composite hi lo f '[ '(size,a)]
   Prepend
     :: forall hi1 hi0 lo0 f {x} {y}  xs
-    . Composite hi1 (hi0 + 1) f '[x]
+    .  Composite hi1 (hi0 + 1) f '[x]
     -> Composite hi0 lo0 f (y:xs)
     -> Composite hi1 lo0 f (x:y:xs)
 
@@ -112,8 +102,7 @@ begin = Single
 
 append
   :: forall size n f hi0 lo0 ns y {lo1} {hi1}
-  . 
-    ( lo1 ~ hi0 + 1
+  . ( lo1 ~ hi0 + 1
     , hi1 - lo1 + 1 ~ size
 
     , KnownNat hi1
@@ -158,17 +147,14 @@ part = MkPart {offset, sizeBits, mask}
     hi = fromEnum $ natVal @hi Proxy
     offset = fromEnum (natVal @lo Proxy) - 1
 
-unpackMsg :: forall a.
-  Composite
-    16
-    1
-    (Const a)
-   '[ '(8,Integer)
-    , '(4,Integer)
-    , '(4,Integer)
-    ] ->
-  Integer ->
-  (Integer,Integer,Integer)
+unpackMsg :: forall a
+  . Composite 16 1 (Const a) -- 16 bits size in total
+   '[ '(8,Integer) -- 8 bits size
+    , '(4,Integer) -- 4 bits size
+    , '(4,Integer) -- 4 bits size
+    ]
+  -> Integer -- integer to extract these pieces from
+  -> (Integer,Integer,Integer)
 unpackMsg schema n =
   case unpack (const Const) schema n of
     Prepend (Single (Const n3))
