@@ -27,6 +27,7 @@
 {-# LANGUAGE TypeFamilyDependencies #-}
 {-# LANGUAGE UndecidableInstances #-}
 {-# OPTIONS_GHC -Wall -Werror=Wno-incomplete-patterns #-}
+{-# LANGUAGE MultiParamTypeClasses #-}
 module Packing
   ( Composite (Single, Prepend)
   , begin
@@ -47,12 +48,14 @@ module Packing
 
 import Prelude hiding (init, fail)
 import Ivory.Language as Ivory
-import GHC.TypeNats (KnownNat, natVal, type (-), type (+), type (<=))
-import Data.Bits (shiftL, (.&.), shiftR)
+import GHC.TypeNats (KnownNat, natVal, type (-), type (+), type (<=), Nat)
+import Data.Bits (shiftL, (.&.), shiftR, Bits ((.|.)))
 import Data.Type.Ord (Compare)
 import Data.Functor.Const (Const (Const))
 import Control.Arrow ((>>>))
 import Data.Foldable (Foldable(fold))
+import Control.Monad.Identity (Identity(Identity))
+import Communication (Uint4)
 
 data Composite hi lo f xs where
   Single :: forall size a hi lo f
@@ -72,17 +75,19 @@ data Composite hi lo f xs where
     -> Composite hi1 lo0 f (x:y:xs)
 
 pack
-  :: forall hi lo ns
-  . Composite hi lo (Const Integer) ns
-  -> Integer
+  :: forall hi lo ns n
+  . (BitLike n, Num n, Num n)
+  => Composite hi lo (Const n) ns
+  -> n
 pack (Prepend x xs) = pack x + pack xs
-pack (Single n) = makePart (part @hi @lo) $ toInteger n
+pack (Single (Const n)) = makePart (part @hi @lo) n
 
 unpack
-  :: forall hi lo ns f g
-  . (forall a. f a -> Integer -> g a)
+  :: forall hi lo ns f g n
+  . (BitLike n, Num n, Num n) 
+  => (forall a. f a -> n -> g a)
   -> Composite hi lo f ns
-  -> Integer
+  -> n
   -> Composite hi lo g ns
 unpack apply = flip \packed -> \case
   Single @_ @_ @hi' @lo' n ->
@@ -125,12 +130,43 @@ data Part hi lo = MkPart
   , mask :: Integer
   }
 
-takePart :: Part hi lo -> Integer -> Integer
-takePart MkPart {offset, mask} src = (src .&. mask) `shiftR` offset  
+takePart :: (BitLike a, Num a) => Part hi lo -> a -> a
+takePart MkPart {offset, mask} src =
+  (src `conj` fromInteger mask) `shiftR'` fromInteger (toEnum offset)  
 
-makePart :: Part hi lo -> Integer -> Integer
+class Sized size a
+instance Sized 16 Uint16
+instance Sized 8 Uint8
+instance Sized 4 Uint8
+
+class BitLike a where
+  shiftL' :: a -> a -> a
+  shiftR' :: a -> a -> a
+  conj :: a -> a -> a
+  disj :: a -> a -> a
+
+instance BitLike Integer where
+  shiftL' a = shiftL a . fromInteger
+  shiftR' a = shiftR a . fromInteger
+  conj = (.&.)
+  disj = (.|.)
+
+newtype AsBit a = MkAsBit a
+  deriving newtype (IvoryType,IvoryVar,IvoryExpr,Num,IvoryBits)
+
+instance IvoryBits (AsBit a) => BitLike (AsBit a) where
+  shiftL' = iShiftL
+  shiftR' = iShiftR
+  conj = (.&)
+  disj = (.|)
+
+deriving via AsBit Uint8 instance BitLike Uint8
+deriving via AsBit Uint16 instance BitLike Uint16
+
+makePart :: (BitLike a, Num a) => Part hi lo -> a -> a
 makePart MkPart {offset, mask} n =
-  (n `shiftL` offset) .&. mask
+  (n `shiftL'` fromInteger (toEnum offset))
+    `conj` fromInteger mask
 
 part :: forall hi lo.
   ( KnownNat hi
@@ -146,6 +182,75 @@ part = MkPart {offset, sizeBits, mask}
     sizeBits = hi - offset
     hi = fromEnum $ natVal @hi Proxy
     offset = fromEnum (natVal @lo Proxy) - 1
+
+newtype Iso a b = MkIso (a -> b, b -> a)
+
+-- newtype S f g a = MkS (f a (g a))
+
+type Msg f = Composite 16 1 f
+   '[ '(8,Uint8) -- 8 bits size
+    , '(4,Uint4) -- 4 bits size
+    , '(4,Uint4) -- 4 bits size
+    ]
+
+packMsg
+  :: Msg (Const Uint16)
+  -> Uint16
+packMsg = pack
+
+compositeNatTrans ::
+  (forall a. f a -> g a) ->
+  Composite hi lo f ns ->
+  Composite hi lo g ns
+compositeNatTrans f (Single x) = Single (f x)
+compositeNatTrans f (Prepend x xs) =
+  Prepend (compositeNatTrans f x) (compositeNatTrans f xs)
+
+msgSchema :: Msg (Iso Uint16)
+msgSchema = undefined
+
+data N = S N | Z
+
+type family NToNat (n :: N) where
+  NToNat Z = 0
+  NToNat (S n) = 1 + NToNat n
+
+apply :: forall f g h hi lo ns.
+  (forall a. f a -> g a -> h a) ->
+  Composite (NToNat hi) (NToNat lo) f ns ->
+  Composite (NToNat hi) (NToNat lo) g ns ->
+  Composite (NToNat hi) (NToNat lo) h ns
+apply f (Single x) (Single y) = Single (f x y)
+apply f (Prepend @hi1 @hi0 x0 x1) (Prepend @hi1' @hi0' y0 y1) =
+  q'
+  where
+  q' :: Composite hi lo h ns
+  q' = q
+  q :: hi1 ~ hi1' => hi0 ~ hi0' => Composite hi lo h ns
+  q = Prepend @hi1 @hi0
+    (apply f x0 y0)
+    (apply f x1 undefined)
+
+
+
+putMessage ::
+  (Uint8,Uint4,Uint4) ->
+  Msg (Iso Uint16) ->
+  Msg (Const Uint16)
+putMessage (a,b,c) = \case
+  Prepend (Single fa) x -> undefined
+
+unpackMsg' :: forall
+  . Msg (Iso Uint16)
+  -> Uint16 -- integer to extract these pieces from
+  -> (Uint8,Uint4,Uint4)
+unpackMsg' schema n =
+  case unpack (\(MkIso (to,_)) n -> Identity $ to n) schema n of
+    Prepend (Single (Identity n3))
+      (Prepend
+        (Single (Identity n2))
+        (Single (Identity n1))) -> (n3,n2,n1)
+
 
 unpackMsg :: forall a
   . Composite 16 1 (Const a) -- 16 bits size in total
