@@ -28,21 +28,21 @@
 {-# LANGUAGE UndecidableInstances #-}
 {-# OPTIONS_GHC -Wall -Werror=Wno-incomplete-patterns #-}
 module Packing
-  ( Composite (Single, Prepend)
-  , begin
-  , append
-  -- * Packing/unpacking
-  , pack
-  , unpack
-  -- * Instances
-  , CompositeF (MkCompositeF, unCompositeF)
-  , withComposite
-  -- * Part
-  , Part (MkPart, sizeBits, offset, mask)
-  , part
-  , makePart
-  , takePart
-  )
+  -- ( Composite (Single, Prepend)
+  -- , begin
+  -- , append
+  -- -- * Packing/unpacking
+  -- , pack
+  -- , unpack
+  -- -- * Instances
+  -- , CompositeF (MkCompositeF, unCompositeF)
+  -- , withComposite
+  -- -- * Part
+  -- , Part (MkPart, sizeBits, offset, mask)
+  -- , part
+  -- , makePart
+  -- , takePart
+  -- )
   where
 
 import Prelude hiding (init, fail, append)
@@ -64,18 +64,19 @@ import Data.Type.Equality ((:~:) (Refl))
 import Control.Arrow ((>>>))
 import Data.Foldable (Foldable(fold))
 
-
 data Composite hi lo f xs where
-  Single :: forall hi lo a f
+  Single :: forall size a hi lo f
     . ( KnownNat hi
       , KnownNat lo
-      , (hi >=? lo) ~ 'True 
+      , KnownNat size
+      , hi - lo + 1 ~ size
+      , Compare hi lo ~ 'GT
       , Compare lo 0 ~ 'GT
       )
     => f a
-    -> Composite hi lo f '[a]
+    -> Composite hi lo f '[ '(size,a)]
   Prepend
-    :: forall hi1 hi0 lo0 f x xs
+    :: forall hi1 hi0 lo0 f {x}  xs
     . Composite hi1 (hi0 + 1) f '[x]
     -> Composite hi0 lo0 f xs
     -> Composite hi1 lo0 f (x:xs)
@@ -94,35 +95,40 @@ unpack
   -> Integer
   -> Composite hi lo g ns
 unpack apply = flip \packed -> \case
-  Single @hi' @lo' n ->
+  Single @_ @_ @hi' @lo' n ->
     Single $ apply n $ takePart (part @hi' @lo') packed
   Prepend x xs ->
     Prepend (unpack apply x packed) (unpack apply xs packed)
 
 begin
   :: forall size n f
-  . ( Compare size 1 ~ 'GT
-    , KnownNat size
+  . ( KnownNat size
+    , size - 1 + 1 ~ size
+    , Compare size 1 ~ 'GT
     )
   => f n
-  -> Composite size 1 f '[n]
-begin = Single 
+  -> Composite size 1 f '[ '(size,n) ]
+begin = Single
 
 append
-  :: forall size n f hi lo ns {lo'} {hi'}
-  . ( lo' ~ hi + 1
-    , hi' ~ hi + size
-    , KnownNat hi'
-    , KnownNat lo'
-    , Compare hi' lo' ~ 'GT
-    , Compare lo' 0 ~ 'GT
+  :: forall size n f hi0 lo0 ns {lo1} {hi1}
+  . 
+    ( lo1 ~ hi0 + 1
+    , hi1 - lo1 + 1 ~ size
+
+    , KnownNat hi1
+    , KnownNat lo1
+    , KnownNat size
+
+    , Compare hi1 lo1 ~ 'GT
+    , Compare lo1 0 ~ 'GT
     )
   => f n
-  -> Composite hi lo f ns
-  -> Composite hi' lo f (n:ns)
-append n = Prepend (Single @hi' @lo' n)   
+  -> Composite hi0 lo0 f ns
+  -> Composite hi1 lo0 f ( '(size,n):ns)
+append = Prepend . Single
 
--- * Part
+-- -- * Part
 
 data Part hi lo = MkPart
   { offset :: Int
@@ -152,7 +158,7 @@ part = MkPart {offset, sizeBits, mask}
     hi = fromEnum $ natVal @hi Proxy
     offset = fromEnum (natVal @lo Proxy) - 1
 
--- * Instances
+-- -- * Instances
 
 newtype CompositeF hi lo ns a = MkCompositeF
   { unCompositeF :: Composite hi lo (Const a) ns
@@ -176,24 +182,24 @@ instance Foldable (CompositeF hi lo xs) where
     Single (Const n) -> f n
     Prepend a b -> foldMap f (MkCompositeF a) <> foldMap f (MkCompositeF b)
 
--- * Existentials
+-- -- * Existentials
 
--- data SomeComposite lo f xs = forall hi. MkSomeComposite
---   (Composite hi lo f xs)
+-- -- data SomeComposite lo f xs = forall hi. MkSomeComposite
+-- --   (Composite hi lo f xs)
 
--- pop ::
---   Composite hi lo Identity (n : ns) ->
---   ( n
---   , Either
---     (SomeComposite lo Identity ns)
---     (ns :~: '[])
---   )
--- pop (Prepend x xs) =
---   case x of
---   Prepend _ ys -> case ys of {}
---   Single n -> (runIdentity n, Left $ MkSomeComposite xs)
+-- -- pop ::
+-- --   Composite hi lo Identity (n : ns) ->
+-- --   ( n
+-- --   , Either
+-- --     (SomeComposite lo Identity ns)
+-- --     (ns :~: '[])
+-- --   )
+-- -- pop (Prepend x xs) =
+-- --   case x of
+-- --   Prepend _ ys -> case ys of {}
+-- --   Single n -> (runIdentity n, Left $ MkSomeComposite xs)
 
--- * Examples
+-- -- * Examples
 
 partJ  = part @8 @5
 
@@ -215,10 +221,10 @@ k =
   where
     cu = Const ()
 
-j = Single @19 @17 $ Const @_ @String ()
+j = Single @_ @String @19 @17 $ Const @_  ()
 
 --msgStructure :: Composite 16 0 (Const ())'[Uint16, Uint4, Bool]
-msgStructure = Prepend (Single @19 @17 $ Const @_ @String ())
-  $ Prepend (Single @16 @9 $ Const ())
-  $ Prepend (Single @8 @5 @String $ Const ()) -- 0x11110000
-  $ Single @4 @1 @Bool $ Const ()
+msgStructure = Prepend (Single @_ @String @19 @17 $ Const @_ @String ())
+  $ Prepend (Single @_ @String @16 @9 $ Const ())
+  $ Prepend (Single @_ @String @8 @5  $ Const ()) -- 0x11110000
+  $ Single @_ @Bool @4 @1 $ Const ()
