@@ -28,21 +28,21 @@
 {-# LANGUAGE UndecidableInstances #-}
 {-# OPTIONS_GHC -Wall -Werror=Wno-incomplete-patterns #-}
 module Packing
-  -- ( Composite (Single, Prepend)
-  -- , begin
-  -- , append
-  -- -- * Packing/unpacking
-  -- , pack
-  -- , unpack
-  -- -- * Instances
-  -- , CompositeF (MkCompositeF, unCompositeF)
-  -- , withComposite
-  -- -- * Part
-  -- , Part (MkPart, sizeBits, offset, mask)
-  -- , part
-  -- , makePart
-  -- , takePart
-  -- )
+  ( Composite (Single, Prepend)
+  , begin
+  , append
+  -- * Packing/unpacking
+  , pack
+  , unpack
+  -- * Instances
+  , CompositeF (MkCompositeF, unCompositeF)
+  , withComposite
+  -- * Part
+  , Part (MkPart, sizeBits, offset, mask)
+  , part
+  , makePart
+  , takePart
+  )
   where
 
 import Prelude hiding (init, fail, append)
@@ -76,10 +76,10 @@ data Composite hi lo f xs where
     => f a
     -> Composite hi lo f '[ '(size,a)]
   Prepend
-    :: forall hi1 hi0 lo0 f {x}  xs
+    :: forall hi1 hi0 lo0 f {x} {y}  xs
     . Composite hi1 (hi0 + 1) f '[x]
-    -> Composite hi0 lo0 f xs
-    -> Composite hi1 lo0 f (x:xs)
+    -> Composite hi0 lo0 f (y:xs)
+    -> Composite hi1 lo0 f (x:y:xs)
 
 pack
   :: forall hi lo ns
@@ -111,7 +111,7 @@ begin
 begin = Single
 
 append
-  :: forall size n f hi0 lo0 ns {lo1} {hi1}
+  :: forall size n f hi0 lo0 ns y {lo1} {hi1}
   . 
     ( lo1 ~ hi0 + 1
     , hi1 - lo1 + 1 ~ size
@@ -124,8 +124,8 @@ append
     , Compare lo1 0 ~ 'GT
     )
   => f n
-  -> Composite hi0 lo0 f ns
-  -> Composite hi1 lo0 f ( '(size,n):ns)
+  -> Composite hi0 lo0 f (y:ns)
+  -> Composite hi1 lo0 f ( '(size,n):y:ns)
 append = Prepend . Single
 
 -- -- * Part
@@ -157,6 +157,24 @@ part = MkPart {offset, sizeBits, mask}
     sizeBits = hi - offset
     hi = fromEnum $ natVal @hi Proxy
     offset = fromEnum (natVal @lo Proxy) - 1
+
+unpackMsg :: forall a.
+  Composite
+    16
+    1
+    (Const a)
+   '[ '(8,Integer)
+    , '(4,Integer)
+    , '(4,Integer)
+    ] ->
+  Integer ->
+  (Integer,Integer,Integer)
+unpackMsg schema n =
+  case unpack (const Const) schema n of
+    Prepend (Single (Const n3))
+      (Prepend
+        (Single (Const n2))
+        (Single (Const n1))) -> (n3,n2,n1)
 
 -- -- * Instances
 
