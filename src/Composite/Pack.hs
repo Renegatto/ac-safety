@@ -38,6 +38,7 @@ module Composite.Pack
   , part
   , makePart
   , takePart
+  , takePart'
   )
   where
 
@@ -117,16 +118,18 @@ instance IvoryBits (AsBit a) => BitLike (AsBit a) where
 
 deriving via AsBit Uint8 instance BitLike Uint8
 deriving via AsBit Uint16 instance BitLike Uint16
+deriving via AsBit Uint32 instance BitLike Uint32
+deriving via AsBit Uint64 instance BitLike Uint64
 
 makePart :: (BitLike a, Num a) => Part hi lo -> a -> a
 makePart MkPart {offset, mask} n =
   (n `shiftL'` fromInteger (toEnum offset))
     `conj` fromInteger mask
 
-part :: forall size {plo} {psize}.
+part :: forall size {plo}.
   Nat size ->
   Nat (S plo) ->
-  Part (S plo :+: psize) (S plo)
+  Part (plo :+: size) (S plo)
 part size lo = MkPart {offset, sizeBits, mask}
   where
     mask = shiftL template offset
@@ -135,3 +138,28 @@ part size lo = MkPart {offset, sizeBits, mask}
     sizeBits = hi - offset
     hi = natToInt (lo `add` size)
     offset = natToInt lo - 1
+
+part'
+  :: forall size lo {plo} {psizee}.
+  ( S plo ~ N2S lo
+  , S psizee ~ N2S size
+  , Materialize psizee
+  , Materialize plo
+  )
+  => Part (plo :+: S psizee) (S plo)
+part' = part @(S psizee)
+  (materialize @(S psizee))
+  (materialize @(S plo))
+
+takePart'
+  :: forall size lo n {plo} {psizee}.
+  ( S plo ~ N2S lo
+  , S psizee ~ N2S size
+  , Materialize psizee
+  , Materialize plo
+  , BitLike n
+  , Num n
+  )
+  => n
+  -> n
+takePart' = takePart $ part' @size @lo

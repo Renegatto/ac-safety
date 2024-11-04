@@ -45,38 +45,11 @@ import qualified StandaloneWaterSensor.Connection as Connection
 import qualified Communication.Client
 import qualified Communication
 import qualified Communication.Sensor
+import Debug (DebugMode, Debug (debugPrint, debugln, debugPrintLn))
 
 newtype Pin = MkPin Uint8
 newtype BaudRate = MkBaudRate Uint64
 data Bluetooth
-
-data DebugMode = DebugEnabled | DebugDisabled
-
-class Debug (mode :: DebugMode) where
-  debug :: forall a eff. IvoryType a => a -> Ivory eff ()
-  debugln :: forall a eff. IvoryType a => a -> Ivory eff ()
-  debugPrint :: forall eff. String -> Ivory eff ()
-  debugPrintLn :: forall eff. String -> Ivory eff ()
-
-instance Debug 'DebugEnabled where
-  debug :: forall a eff. IvoryType a => a -> Ivory eff ()
-  debug = undefined
-  debugln :: forall a eff. IvoryType a => a -> Ivory eff ()
-  debugln = undefined
-  debugPrint :: forall eff. String -> Ivory eff ()
-  debugPrint = undefined
-  debugPrintLn :: forall eff. String -> Ivory eff ()
-  debugPrintLn = undefined
-
-instance Debug 'DebugDisabled where
-  debug :: forall a eff. IvoryType a => a -> Ivory eff ()
-  debug _ = pure ()
-  debugln :: forall a eff. IvoryType a => a -> Ivory eff ()
-  debugln _ = pure ()
-  debugPrint :: forall eff. String -> Ivory eff ()
-  debugPrint _ = pure ()
-  debugPrintLn :: forall eff. String -> Ivory eff ()
-  debugPrintLn _ = pure ()
 
 data ClientConfig = MkClientConfig
   { btBaudRate :: BaudRate
