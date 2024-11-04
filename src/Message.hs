@@ -35,7 +35,7 @@ module Message
   , putMessage
   , unpackMsg
   , unpackHsMsg
-
+  , Uint4(MkUint4, unUint4)
   )
   where
 
@@ -45,13 +45,15 @@ import Data.Bits (shiftL, (.&.), shiftR, Bits ((.|.)))
 import Data.Functor.Const (Const (Const))
 import Control.Arrow ((>>>))
 import Control.Monad.Identity (Identity(Identity))
-import Communication (Uint4)
 import Nats
 import Composite.Type
 import Composite.Pack (part, unpack, pack)
 import Data.Foldable (Foldable(fold))
+import Ivory.Language.Uint (Uint8(Uint8))
 
--- * Ivory message
+newtype Uint4 = MkUint4 { unUint4 :: Uint8 }
+  deriving newtype (Default, Bounded)
+  deriving newtype (IvoryType, IvoryInit, IvoryStore, IvoryZeroVal, IvoryVar, IvoryExpr, IvoryEq, IvoryOrd, Num)
 
 newtype Iso a b = MkIso { unIso :: (a -> b, b -> a) }
 
@@ -63,17 +65,17 @@ type Msg f = Composite (N2S 16) (N2S 1) f
 
 msgSchema :: Msg (Iso Uint16)
 msgSchema = append (MkIso (castDefault,safeCast))
-  $ append (MkIso (castDefault,safeCast))
-  $ begin (MkIso (castDefault,safeCast))
+  $ append (MkIso (MkUint4 . castDefault,safeCast . unUint4))
+  $ begin (MkIso (MkUint4 . castDefault,safeCast . unUint4))
 
 putMessage ::
   (Uint8,Uint4,Uint4) ->
   Msg (Iso Uint16) ->
   Msg (Const Uint16)
-putMessage (a,b,c) = apply f
-    $ append (Identity c)
-    $ append (Identity b)
-    $ begin (Identity a)
+putMessage (x2,x1,x0) = apply f
+    $ append (Identity x2)
+    $ append (Identity x1)
+    $ begin (Identity x0)
   where
     f (Identity x) (MkIso (_,from)) = Const $ from x
 

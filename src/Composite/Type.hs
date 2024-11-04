@@ -47,7 +47,6 @@ import Data.Bits (shiftL, (.&.), shiftR, Bits ((.|.)))
 import Data.Functor.Const (Const (Const))
 import Control.Arrow ((>>>))
 import Control.Monad.Identity (Identity(Identity))
-import Communication (Uint4)
 import Nats
 
 data Composite hi lo f xs where

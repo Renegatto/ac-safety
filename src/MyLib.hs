@@ -36,6 +36,7 @@ import qualified Ctx
 import Control.Monad.State (State, runState)
 import Ctx (define)
 import qualified Ivory.Language.Syntax.AST as AST
+-- import Ivory.Backend.C qualified as C
 
 newtype Ms = MkMs { unMs :: Uint64 }
   deriving newtype (IvoryType, IvoryVar)
@@ -79,7 +80,8 @@ makeTimeout = do
 
 someFunc :: IO ()
 someFunc = do
-  let (_,Ctx.MkCtx {Ctx.definitions}) = runState makeTimeout Ctx.initial
-   --   text = showModule $ compileModule $ package "MyModule" definitions
-  --writeFile "code.c" text
+  let
+    (_,Ctx.MkCtx {Ctx.definitions}) = runState makeTimeout Ctx.initial
+   -- text = showModule $ compileModule $ package "MyModule" definitions
+ -- writeFile "code.c" text
   putStrLn "someFunc"

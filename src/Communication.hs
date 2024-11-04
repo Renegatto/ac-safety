@@ -27,6 +27,7 @@
 {-# LANGUAGE TypeFamilyDependencies #-}
 {-# LANGUAGE UndecidableInstances #-}
 {-# OPTIONS_GHC -Wall -Werror=Wno-incomplete-patterns #-}
+{-# LANGUAGE ViewPatterns #-}
 module Communication
   -- ( Outcome(ResponseReceived, ResponseIsNotReady, ShouldRetry, NoResponse) 
   -- , COutcome
@@ -36,50 +37,10 @@ module Communication
   -- ) 
   where
 
-import Prelude hiding (init, fail, append)
+import Prelude hiding (init, fail)
 import Ivory.Language as Ivory
-import Control.Monad.State (MonadState)
-import Ctx (Ctx, newMemArea, define', mkSym)
-import Enum (enum, matchEnum)
--- import qualified StandaloneWaterSensor.Timeout as Timeout
--- import qualified StandaloneWaterSensor.Retriable as Retriable
-import qualified StandaloneWaterSensor.Timer as Timer
-import Data.Functor ((<&>))
-import qualified StandaloneWaterSensor.Connection as Connection
-import GHC.TypeNats (KnownNat, natVal, type (-), type (+), type (<=))
-import Data.Bits (shiftL, (.&.), shiftR)
-import Data.Type.Ord (Compare, type (>=?))
-import Data.Functor.Const (Const (Const))
-import Data.Functor.Identity (Identity (runIdentity))
-import Data.Type.Equality ((:~:) (Refl))
-
-data WaterLevel
-  = Low
-  | Medium
-  | High
-  | Overflow
-  deriving (Bounded, Enum)
-
-data Cfg size msg = MkCfg
-  { addressOffset :: size
-  , addressMask :: msg
-
-  , cmdOffset :: size
-  , cmdMask :: msg
-
-  , dataOffset :: size
-  , dataMask :: msg
-  }
-
-defaultCfg :: Num n => Cfg n Uint16
-defaultCfg = MkCfg
-  { addressMask   = 0xff00
-  , cmdMask       = 0x00f0
-  , dataMask      = 0x000f
-  , addressOffset = 8
-  , cmdOffset     = 4
-  , dataOffset    = 0
-  }
+import qualified Message
+import qualified Composite.Pack as Pack
 
 -- | Enlarge number size, truncating with zeroes
 truncateNumber :: forall t u. (IvoryBits t, SafeCast t u) => t -> u
@@ -94,101 +55,39 @@ truncateNumber n =
     mask = (iShiftL @t (highestBit - 1) 1) + 1
   in safeCast $ n .& mask
 
-truncateNumberFn :: forall t u.
-  (IvoryBits t, SafeCast t u) => Def ('[t] :-> u)
-truncateNumberFn =
-  proc "truncate0" \n -> body $ ret $ truncateNumber n
-
-byteToWord :: Def ('[Uint8] :-> Uint16)
-byteToWord = truncateNumberFn
-
-
-
-type Uint4 = Uint8
-
-data Message = MkMessage
-  { recipient :: Uint8
-  , cmd     :: Uint4
-  , payload :: Uint4
+newtype Recipient = MkRecipient
+  { unRecipient :: Uint8
   }
+  deriving newtype (IvoryType, IvoryInit, IvoryStore, IvoryZeroVal, IvoryVar, IvoryExpr, IvoryEq, IvoryOrd, Num)
+
+data Message rec cmd pay = MkMessage
+  { recipient :: rec
+  , cmd     :: cmd
+  , payload :: pay
+  }
+newtype RawMessage = MkRawMessage
+  { unRawMessage :: Message Recipient Message.Uint4 Message.Uint4 }
 
 newtype CMessage = MkCMessage Uint16
   deriving newtype (IvoryType, IvoryInit, IvoryStore, IvoryZeroVal, IvoryVar, IvoryExpr, IvoryEq, IvoryOrd, Num)
 
-withMessage :: CMessage -> (Message -> Ivory eff a) -> Ivory eff a 
-withMessage message cont =
-  
-  undefined
+withMessage :: (RawMessage -> Ivory eff a) -> CMessage -> Ivory eff a 
+withMessage cont (MkCMessage message)  =
+  let
+    (MkRecipient -> recipient,cmd,payload) =
+      Message.unpackMsg Message.msgSchema message
+  in cont $ MkRawMessage $ MkMessage {recipient,cmd,payload}
 
-toCMessage :: Cfg Uint16 Uint16 -> Message -> Ivory (ProcEffects s CMessage) ()
-toCMessage MkCfg {..} MkMessage {..} = do
-  recipient' <- call byteToWord recipient
-  cmd' <- call byteToWord cmd
-  payload' <- call byteToWord payload
-  ret $ MkCMessage $
-    (recipient' `iShiftL` addressOffset)
-    + (cmd' `iShiftL` cmdOffset)
-    + (payload' `iShiftL` dataOffset)
+toCMessage :: RawMessage -> CMessage
+toCMessage (MkRawMessage MkMessage {..}) = do
+  MkCMessage
+    $ Pack.pack
+    $ Message.putMessage (unRecipient recipient,cmd,payload) Message.msgSchema
 
-part :: IvoryBits msg => msg -> msg -> msg -> msg
-part offset mask msg = (msg .& mask) `iShiftR` offset
+callToCMessage :: RawMessage -> Ivory eff CMessage
+callToCMessage (MkRawMessage (MkMessage {recipient,cmd,payload})) =
+  call toCMessageFn recipient cmd payload
 
--- (byte offset, word mask, Msg msg) {
---   return (msg & mask) >> offset; 
--- };
-address :: IvoryBits msg => Cfg msg msg -> msg -> msg
-address MkCfg {addressOffset, addressMask} =
-  part addressOffset addressMask
-
-command :: IvoryBits msg => Cfg msg msg -> msg -> msg
-command MkCfg {cmdOffset, cmdMask} =
-  part cmdOffset cmdMask
---       uint4 command(Msg msg) {
---         return part(CMD_OFFSET,CMD_MASK,msg);
---       };
---       uint4 data(Msg msg) {
---         return part(DATA_OFFSET,DATA_MASK,msg);
---       };
---     }
-
-
---     namespace Client {
---       typedef Message::Msg Message;
---       // 4b
---       enum Request {
---         CheckHealth = 0xA,
---         GetWaterLevel = 0xC,
---       };
---       Request getMessageRequest(Message msg) {
---         return Message::command(msg);
---       };
---       Message message(byte recipient, enum Request request) {
---         return Message::message(recipient,request,0);
---       };
---     };
-
---     namespace Sensor {
---       typedef Message::Msg Message;
---       // 4b
---       enum Response {
---         Alive = 0xB,
---         WaterLevel = 0x3,
---       };
---       typedef Message WaterLevelResponse;
---       typedef Message AliveResponse;
-
---       WaterLevelResponse makeAliveMessage(byte recipient) {
---         return Message::message(recipient, Response::Alive, 0);
---       };
---       WaterLevelResponse makeWaterLevelMessage(byte recipient, enum WaterLevel level) {
---         return Message::message(recipient, Response::WaterLevel, level);
---       };
---       enum WaterLevel waterLevelFromMessage(WaterLevelResponse resp) {
---         return Message::data(resp);
---       };
---       Response getMessageResponse(Message msg) {
---         return Message::command(msg);
---       };
---     };
---   };
--- };
+toCMessageFn :: Def ('[Recipient, Message.Uint4, Message.Uint4] :-> CMessage) 
+toCMessageFn = proc "toCMessage" \recipient cmd payload -> body
+  $ ret $ toCMessage $ MkRawMessage MkMessage {recipient, cmd, payload}
