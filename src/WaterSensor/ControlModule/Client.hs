@@ -42,11 +42,13 @@ import Enum (enum, matchEnum)
 import qualified StandaloneWaterSensor.Timer as Timer
 import Data.Functor ((<&>))
 import qualified StandaloneWaterSensor.Connection as Connection
+import qualified Communication.Client
+import qualified Communication
+import qualified Communication.Sensor
 
 newtype Pin = MkPin Uint8
 newtype BaudRate = MkBaudRate Uint64
 data Bluetooth
-data Message
 
 data DebugMode = DebugEnabled | DebugDisabled
 
@@ -78,7 +80,7 @@ instance Debug 'DebugDisabled where
 
 data ClientConfig = MkClientConfig
   { btBaudRate :: BaudRate
-  , sensorAddress :: Uint16
+  , sensorAddress :: Communication.Recipient
   , irPin :: Pin
   , isAliveRequestsInterval :: Timer.Ms
   , waterLevelRequestInterval :: Timer.Ms
@@ -87,7 +89,7 @@ data ClientConfig = MkClientConfig
 clientCfg :: ClientConfig
 clientCfg = MkClientConfig
   { btBaudRate = MkBaudRate 9600
-  , sensorAddress = undefined
+  , sensorAddress = Communication.MkRecipient 0x69
   , irPin = MkPin 4
   , isAliveRequestsInterval = Timer.MkMs 10000
   , waterLevelRequestInterval = Timer.MkMs 2000
@@ -97,7 +99,7 @@ data Runtime = MkRuntime
   { askingHealthTimer :: Timer.Timer
   , askingWaterLevelTimer :: Timer.Timer
   , bluetooth :: Bluetooth
-  , connection :: Connection.Connection Message 
+  , connection :: Connection.Connection Communication.CMessage 
   }
 
 makeRequests :: forall (dbg :: DebugMode) eff.
@@ -109,41 +111,54 @@ makeRequests MkClientConfig {sensorAddress} MkRuntime {connection, askingHealthT
   askWaterLevel <- Timer.tryTick askingWaterLevelTimer
   ifte_ askWaterLevel
     do
-      undefined
-      -- Connection.sendRespondable
-      --   connection
-      --   $ Communication.Client.message
-      --     sensorAddress
-      --     Communication.Client.Request.CheckHealth
+      sent <- Connection.sendRespondable connection
+        =<< Communication.Client.message
+          sensorAddress
+          Communication.Client.CheckHealth
+      debugPrint @dbg "Sending result:"
+      debugln @dbg sent
     do 
       askHealth <- Timer.tryTick askingHealthTimer
       ifte_ askHealth
         do
-          -- Connection.sendRespondable
-          --   connection
-          --   $ Communication.Client.message
-          --     sensorAddress
-          --     Communication.Client.Request.GetWaterLevel
+          sent <- Connection.sendRespondable connection
+            =<< Communication.Client.message
+              sensorAddress
+              Communication.Client.GetWaterLevel
           debugPrint @dbg "Sending result:"
-        --  debugln @dbg result
+          debugln @dbg sent
         do
-          undefined
---     void makePeriodicRequests()
---  {
---       if (askingHealthTimer->tryTick()) {
---         DEBUGLN("Time to ask health")
---         int result = conn->sendRespondable(WaterSensor::Communication::Client::message(SENSOR_ADDRESS, WaterSensor::Communication::Client::Request::CheckHealth));
---         DEBUG("Sending result: ")
---         DEBUGSHOW(result);
---       } else if (askingWaterLevelTimer->tryTick()) {
---         DEBUGLN("Time to ask water level");
---         int result = conn->sendRespondable(WaterSensor::Communication::Client::message(SENSOR_ADDRESS, WaterSensor::Communication::Client::Request::GetWaterLevel));
---         DEBUG("Sending result: ")
---         DEBUGSHOW(result);
---       } else {
---      //   DEBUGLN("Not going to ask anything yet");
---       };
---     };
+          debugPrintLn @dbg "Not going to ask anything yet"
+
+processResponses :: forall (dbg :: DebugMode) eff.
+  Debug dbg =>
+  Runtime ->
+  Ivory eff ()
+processResponses MkRuntime {connection} = do
+  debugPrintLn @dbg "ControlModule.Client.processResponses";
+  outcome <- Connection.receive connection
+  matchEnum outcome \case
+    Connection.Received -> do
+      debugPrintLn @dbg "RECEIVED IR RESPONSE"
+      sensorResponse :: Communication.CMessage <-
+         undefined -- bluetooth->conn->take();
+      Connection.resume connection
+      Communication.Sensor.withResponse sensorResponse
+        \(_,response) -> case response of
+          Communication.Sensor.ItIsAlive ->
+            debugPrintLn @dbg "Sensor is alive"
+          Communication.Sensor.ItsWaterLevel level ->
+--           handleWaterLevel(WaterSensor::Communication::Sensor::waterLevelFromMessage(sensorResponse));
+            undefined
+    Connection.NoResponse -> do
+      debugPrintLn @dbg "SENSOR DIEEEEEED"
+--     handleSensorDeath();
+    Connection.NotYet -> pure ()
+    Connection.NothingToReceive -> pure ()
+--   default:
+--     DEBUG("Unknown response: ");
+--     DEBUGSHOW(outcome);
+--     break;
 
 {-
 class Client {
@@ -170,40 +185,7 @@ template <
     -- Timer* askingHealthTimer;
     -- Timer* askingWaterLevelTimer;
     -- Bluetooth* bluetooth;
-    void processSensorResponses() {
-   //   DEBUGLN("Client::processSensorResponses");
-      enum Connection::ResponseOutcome outcome = conn->receive();
-      switch (outcome) {
-        case Connection::ResponseOutcome::Received:
-          {
-            DEBUGLN("RECEIVED IR RESPONSE");
-            WaterSensor::Communication::Sensor::Message sensorResponse = bluetooth->conn->take();
-            conn->resume();
-            switch (WaterSensor::Communication::Sensor::getMessageResponse(sensorResponse)) {
-              case WaterSensor::Communication::Sensor::Response::Alive:
-                DEBUGLN("Sensor is alive");
-                break;
-              case WaterSensor::Communication::Sensor::Response::WaterLevel:
-                handleWaterLevel(WaterSensor::Communication::Sensor::waterLevelFromMessage(sensorResponse));
-                break;
-            };
-          };
-          break;
-        case Connection::ResponseOutcome::NoResponse:
-          DEBUGLN("SENSOR DIEEEEEED");
-          handleSensorDeath();
-          break;
-        case Connection::ResponseOutcome::NotYet:
-          break;
-        case Connection::ResponseOutcome::NothingToReceive:
-          break;
-        default:
-          DEBUG("Unknown response: ");
-          DEBUGSHOW(outcome);
-          break;
-      };
-      //Serial.println("Client::processedSensorResponses");
-    };
+    void processSensorResponses()
     void makePeriodicRequests()
   public:
     // client needs to await some responses
