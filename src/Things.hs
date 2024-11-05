@@ -1,9 +1,18 @@
 {-# OPTIONS_GHC -XGHC2021 #-}
 {-# LANGUAGE BlockArguments #-}
 {-# LANGUAGE PartialTypeSignatures #-}
+{-# LANGUAGE DataKinds #-}
+{-# LANGUAGE LinearTypes #-}
+{-# LANGUAGE NoImplicitPrelude #-}
+{-# LANGUAGE QualifiedDo #-}
 module Things where
-import Prelude hiding (flip)
-
+-- import Prelude hiding (flip)
+import Prelude.Linear hiding (IO)
+import System.IO.Linear (IO, fromSystemIO) 
+import Control.Functor.Linear qualified as LMonad
+import Control.Monad qualified as M
+import Prelude qualified as P (IO)
+import Control.Applicative (pure)
 data Equal a b where
   EqRefl :: Equal a b
 
@@ -66,3 +75,40 @@ assignment_answer = assignment $
       f ## Abstraction \a0 ->
         Abstraction \b0 ->
           b0 ## a0 ## c0
+
+newMem :: P.IO Int
+newMem = undefined
+
+freeMemAt :: Int -> IO ()
+freeMemAt = undefined
+
+newtype Ptr a = UnsafePtr (Ur Int)
+
+malloc :: a -> IO (Ptr a)
+malloc x = fromSystemIO M.do
+  area <- newMem
+  pure $ UnsafePtr $ Ur area
+
+-- withNewDynMemPtr :: (DynMemPtr a %1 -> IO r) -> IO r
+-- withNewDynMemPtr f = undefined -- do
+--   -- ptr <- newDynMemPtr
+--   -- f ptr
+
+write :: Ptr a %1-> a -> IO (Ptr a)
+write = undefined
+
+deref :: Ptr a %1 -> IO (Ptr a, Ur a)
+deref = undefined
+
+free :: Ptr a %1 -> IO ()
+free (UnsafePtr (Ur memArea)) = freeMemAt memArea
+
+good :: IO ()
+good = LMonad.do
+  ptr <- malloc (222 :: Int)
+  (ptr1, Ur val) <- deref ptr
+  fromSystemIO $ print val
+  fromSystemIO $ print val
+  ptr2 <- write ptr1 2 
+  ptr3 <- write ptr2 3 
+  free ptr3

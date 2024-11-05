@@ -34,8 +34,13 @@ module SoftwareSerial
     ( MkSoftwareSerial
     , write
     , tryRead
+    , begin
     )
   , handleError
+  , BaudRate
+  , Rx (MkRx, unRx)
+  , Tx (MkTx, unTx)
+  , SS
   )
   where
 
@@ -50,19 +55,67 @@ import Ivory.Stdlib (when)
 import Composite.Pack (takePart')
 import Control.Monad (void)
 import Data.Bifunctor (Bifunctor(second))
+import Ivory.Language.Proc (WrapIvory(wrap))
+import Arduino (Pin, Size_t, BaudRate)
 
 -- #include <SoftwareSerial.h>
 
-type Size_t = Uint16 -- size_t = at least 16 bit
+data SS
+
+-- newFn :: Def ('[Uint8,Uint8] :-> SS)
+-- newFn =
+--   importProc
+--     @('[Uint8,Uint8] :-> SS)
+--     "SSBridge.h"
+--     "newSS"
+
+-- writeFn :: Def ('[SS, Uint8] :-> Size_t)
+-- writeFn =
+--   importProc
+--     @('[SS, Uint8] :-> Size_t)
+--     "SSBridge.h"
+--     "writeSS"
+
+-- readFn :: Def ('[SS] :-> Sint32)
+-- readFn =
+--   importProc
+--     @('[SS] :-> Sint32)
+--     "SSBridge.h"
+--     "readSS"
+
+-- softwareSerialLib :: SoftwareSerialLib
+-- softwareSerialLib = MkSoftwareSerialLib
+--   { lib_write = call writeFn
+--   , lib_read = call readFn
+--   }
+
+
+newtype Rx = MkRx { unRx :: Pin }
+newtype Tx = MkTx { unTx :: Pin }
+
 
 data SoftwareSerialLib = MkSoftwareSerialLib
   { lib_write
     :: forall eff
-    . Uint8
+    . SS
+    -> Uint8
     -> Ivory eff Size_t
   , lib_read
     :: forall eff
-    . Ivory eff Sint32 -- either -1 or Uint8
+    . SS
+    -> Ivory eff Sint32 -- either -1 or Uint8
+  , lib_begin
+    :: forall eff
+    . SS
+    -> BaudRate
+    -> Ivory eff ()
+  , new
+    :: forall eff
+    . (Rx,Tx)
+    -> Ivory eff SS
+    -- note that it's library order;
+    -- OUR tx and rx pins are in REVERSE order
+    -- new SoftwareSerial(txPin,rxPin)
   }
 
 data SoftwareSerial = MkSoftwareSerial
@@ -74,14 +127,19 @@ data SoftwareSerial = MkSoftwareSerial
     :: forall eff
     . (Maybe Uint8 -> Ivory eff ())
     -> Ivory eff ()
+  , begin
+    :: forall eff
+    . BaudRate
+    -> Ivory eff ()
   }
 
 tryReadImpl
   :: SoftwareSerialLib
+  -> SS
   -> (Maybe Uint8 -> Ivory eff ())
   -> Ivory eff ()
-tryReadImpl ss cont = do
-  btByteOrErr <- lib_read ss
+tryReadImpl ssLib ss cont = do
+  btByteOrErr <- lib_read ssLib ss
   handleError btByteOrErr
     $ fmap cont
     $ either (const Nothing)

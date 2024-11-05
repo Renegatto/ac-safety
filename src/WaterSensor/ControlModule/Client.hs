@@ -46,6 +46,7 @@ import qualified Communication.Client
 import qualified Communication
 import qualified Communication.Sensor
 import Debug (DebugMode, Debug (debugPrint, debugln, debugPrintLn))
+import qualified Bluetooth.Connection as Bluetooth
 
 newtype Pin = MkPin Uint8
 newtype BaudRate = MkBaudRate Uint64
@@ -71,15 +72,18 @@ clientCfg = MkClientConfig
 data Runtime = MkRuntime
   { askingHealthTimer :: Timer.Timer
   , askingWaterLevelTimer :: Timer.Timer
-  , bluetooth :: Bluetooth
+  , bluetooth :: Bluetooth.BluetoothConnection
   , connection :: Connection.Connection Communication.CMessage 
+  , handleWaterLevel :: HandleWaterLevel
+  , handleSensorDeath :: HandleSensorDeath
   }
 
-makeRequests :: forall (dbg :: DebugMode) eff.
-  Debug dbg =>
-  ClientConfig ->
-  Runtime ->
-  Ivory eff ()
+makeRequests
+  :: forall (dbg :: DebugMode) eff
+  . Debug dbg
+  => ClientConfig
+  -> Runtime
+  -> Ivory eff ()
 makeRequests MkClientConfig {sensorAddress} MkRuntime {connection, askingHealthTimer, askingWaterLevelTimer} = do
   askWaterLevel <- Timer.tryTick askingWaterLevelTimer
   ifte_ askWaterLevel
@@ -103,35 +107,61 @@ makeRequests MkClientConfig {sensorAddress} MkRuntime {connection, askingHealthT
         do
           debugPrintLn @dbg "Not going to ask anything yet"
 
+newtype HandleWaterLevel = MkHandleWaterLevel
+  { unHandleWaterLevel
+    :: forall eff
+    . Communication.Sensor.WaterLevel
+    -> Ivory eff ()
+  }
+newtype HandleSensorDeath = MkHandleSensorDeath
+  { unHandleSensorDeath :: forall eff. Ivory eff ()
+  }
+
 processResponses :: forall (dbg :: DebugMode) eff.
   Debug dbg =>
   Runtime ->
   Ivory eff ()
-processResponses MkRuntime {connection} = do
+processResponses
+  MkRuntime
+    { connection
+    , handleWaterLevel
+    , handleSensorDeath
+    , bluetooth
+    } = do
+
   debugPrintLn @dbg "ControlModule.Client.processResponses";
   outcome <- Connection.receive connection
   matchEnum outcome \case
     Connection.Received -> do
       debugPrintLn @dbg "RECEIVED IR RESPONSE"
       sensorResponse :: Communication.CMessage <-
-         undefined -- bluetooth->conn->take();
+        fmap (Communication.MkCMessage . Bluetooth.unPayload)
+        $ call
+        $ Bluetooth.take bluetooth
       Connection.resume connection
       Communication.Sensor.withResponse sensorResponse
         \(_,response) -> case response of
           Communication.Sensor.ItIsAlive ->
             debugPrintLn @dbg "Sensor is alive"
           Communication.Sensor.ItsWaterLevel level ->
---           handleWaterLevel(WaterSensor::Communication::Sensor::waterLevelFromMessage(sensorResponse));
-            undefined
+            unHandleWaterLevel handleWaterLevel level
     Connection.NoResponse -> do
       debugPrintLn @dbg "SENSOR DIEEEEEED"
---     handleSensorDeath();
+      unHandleSensorDeath handleSensorDeath
     Connection.NotYet -> pure ()
     Connection.NothingToReceive -> pure ()
 --   default:
 --     DEBUG("Unknown response: ");
 --     DEBUGSHOW(outcome);
 --     break;
+
+loop :: forall dbg eff. Debug dbg => ClientConfig -> Runtime -> Ivory eff ()
+loop cfg runtime@MkRuntime {bluetooth} = do
+  debugPrintLn @dbg "loop"
+  Bluetooth.loop bluetooth
+  processResponses runtime
+  makeRequests cfg runtime
+  debugPrintLn @dbg "endloop"
 
 {-
 class Client {
@@ -191,12 +221,6 @@ template <
       askingWaterLevelTimer->start();
       // resetAwait();
     };
-    void loop() {
-     // DEBUGLN("loop");
-      bluetooth->loop();
-      processSensorResponses();
-      makePeriodicRequests();
-     // DEBUGLN("endloop");
-    };
+
 };
 -}

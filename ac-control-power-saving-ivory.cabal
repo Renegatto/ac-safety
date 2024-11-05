@@ -83,6 +83,7 @@ library
         ivory-stdlib,
       --  ivory-backend-acl2,
       --  ivory-backend-c,
+        linear-base,
         mtl
 
     -- Directories containing source files.

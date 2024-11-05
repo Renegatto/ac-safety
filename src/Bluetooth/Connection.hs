@@ -33,11 +33,13 @@ module Bluetooth.Connection
   ( BluetoothConnection
     ( MkBluetoothConnection
     , touch
+    , take
     , withMessage
     , send
     , peek
     , available
     )
+  , Payload (unPayload)
   , newState
   , newBluetoothConnection
   )
@@ -112,7 +114,7 @@ newtype Buffer = MkBuffer
   }
   deriving newtype (IvoryType, IvoryInit, IvoryStore, IvoryZeroVal, IvoryVar, IvoryExpr, IvoryEq, IvoryOrd, Num)
 
-newtype Payload = MkPayload Uint16
+newtype Payload = MkPayload { unPayload :: Uint16 }
   deriving newtype (IvoryType, IvoryInit, IvoryStore, IvoryZeroVal, IvoryVar, IvoryExpr, IvoryEq, IvoryOrd, Num)
 
 data State = MkState
@@ -155,6 +157,9 @@ newBluetoothConnection state@MkState {bluetooth} = do
   peek <- define' incl \n ->
     proc (mkSym "BluetoothConnection_peek" n)
       $ body $ ret =<< peekImpl state
+  take <- define' incl \n ->
+    proc (mkSym "BluetoothConnection_take" n)
+      $ body $ ret =<< takePayload (call peek) state
   touch <- define' incl \n ->
     proc (mkSym "BluetoothConnection_touch" n)
       $ body $ touchImpl @dbg state
@@ -164,9 +169,10 @@ newBluetoothConnection state@MkState {bluetooth} = do
   pure MkBluetoothConnection
     { withMessage =
         withMessageImpl
+          (call take)
           (call isMessage)
-          (call peek)
           state
+    , take
     , send
     , available
     , peek
@@ -176,6 +182,7 @@ newBluetoothConnection state@MkState {bluetooth} = do
 data BluetoothConnection = MkBluetoothConnection
   { send :: Def ('[Payload] :-> ())
   , peek :: Def ('[] :-> Payload)
+  , take :: Def ('[] :-> Payload)
   , touch :: Def ('[] :-> IBool) -- true if received
   , withMessage
     :: forall eff
@@ -192,16 +199,16 @@ availableImpl isMessage MkState { getBuf } =
   isMessage . unBuffer =<< getBuf
 
 withMessageImpl
-  :: (forall eff'. Uint64 -> Ivory eff' IBool)
-  -> (forall eff'. Ivory eff' Payload)
+  :: (forall eff'. Ivory eff' Payload)
+  -> (forall eff'. Uint64 -> Ivory eff' IBool)
   -> State
   -> (Maybe Payload -> Ivory eff ())
   -> Ivory eff ()
-withMessageImpl isMessage peek state cont = do
+withMessageImpl take isMessage state cont = do
   available <- availableImpl isMessage state
   ifte_ available
     do
-      payload <- takePayload peek state
+      payload <- take
       cont $ Just payload
     $ cont Nothing
 
